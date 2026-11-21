@@ -1,56 +1,73 @@
+import os
+import json
+import requests
+from bs4 import BeautifulSoup
+from google import genai
+
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+def get_livingston_notices():
+    url = "https://www.livingstonlegalnotices.org/"
+    res = requests.get(url, headers=HEADERS, timeout=15)
+    soup = BeautifulSoup(res.text, "html.parser")
+    
+    # Extract actual notice titles and links rather than page navigation
+    items = []
+    for a in soup.find_all("a", href=True):
+        title = a.get_text(strip=True)
+        href = a["href"]
+        if any(keyword in title.upper() for keyword in ["ORDINANCE", "NOTICE", "BUDGET", "HEARING", "BID"]):
+            full_url = href if href.startswith("http") else f"https://www.livingstonlegalnotices.org{href}"
+            items.append(f"Title: {title} | Link: {full_url}")
+            
+    # Print to GitHub Actions logs so you can audit the exact raw sources
+    raw_feed = "\n".join(items[:15])
+    print("=== RAW SCRAPED LIVINGSTON ITEMS ===")
+    print(raw_feed)
+    return raw_feed
+
+document_content = get_livingston_notices()
+
+prompt = f"""
+You are a civic media editor for Livingston, NJ. 
+Using ONLY the verified Livingston Township legal notices below, create 3 Instagram-style social posts.
+CRITICAL RULE: You MUST cite the exact Ordinance number, Resolution, or Notice title and include its exact sourceUrl from the list below. Do not invent facts.
+
+Verified Notices:
+{document_content}
+
+Respond ONLY in valid JSON matching this exact structure:
 [
-  {
+  {{
     "id": "liv-101",
     "username": "livingston_pulse",
     "userAvatar": "https://images.unsplash.com/photo-1577495508048-b635879837f1?w=150",
-    "timeAgo": "2h ago",
-    "category": "PUBLIC NOTICE",
-    "caption": "Livingston Township just updated the official CivicPlus legal portal with new public hearing notices for upcoming Town Council ordinances. 🏛️ Stay ahead of local zoning and municipal code discussions before votes become final! Full agendas and meeting links are now live. #LivingstonNJ #CivicEngagement #LocalGov",
+    "timeAgo": "Today",
+    "category": "ORDINANCE | BUDGET | PLANNING",
+    "officialRef": "Exact Ordinance # or Notice Title from source",
+    "sourceUrl": "Exact URL from source",
+    "caption": "Catchy plain-English breakdown citing the exact ordinance/project + #LivingstonNJ",
     "imageUrl": "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b3?w=800",
     "likes": 284,
     "comments": 36,
     "shares": 19,
     "consensusPercent": 82,
-    "trendingBadge": "🔥 Trending in Livingston",
-    "quickVoteQuestion": "Do you plan to tune into the next Township Council public hearing?",
-    "quickVoteOptionA": "Yes, streaming online",
-    "quickVoteOptionB": "No, will read recap",
-    "quickVotePercentA": 64
-  },
-  {
-    "id": "liv-102",
-    "username": "livingston_pulse",
-    "userAvatar": "https://images.unsplash.com/photo-1577495508048-b635879837f1?w=150",
-    "timeAgo": "4h ago",
-    "category": "INFRASTRUCTURE",
-    "caption": "Notice to Bidders! 🚜 Fresh legal postings on the township portal detail contract bids for local roadway paving and pedestrian safety enhancements set for this season. Keep an eye out for detour notices as capital improvement projects take shape across town. #LivingstonNJ #PublicWorks #LocalUpdates",
-    "imageUrl": "https://images.unsplash.com/photo-1584463699027-3e15093557e4?w=800",
-    "likes": 341,
-    "comments": 52,
-    "shares": 24,
-    "consensusPercent": 91,
-    "trendingBadge": "🚧 Roadwork Alert",
-    "quickVoteQuestion": "Should town funds prioritize neighborhood street repaving or school-zone crosswalks?",
-    "quickVoteOptionA": "School crosswalks",
-    "quickVoteOptionB": "Street repaving",
-    "quickVotePercentA": 72
-  },
-  {
-    "id": "liv-103",
-    "username": "livingston_pulse",
-    "userAvatar": "https://images.unsplash.com/photo-1577495508048-b635879837f1?w=150",
-    "timeAgo": "6h ago",
-    "category": "ZONING & PLANNING",
-    "caption": "Planning Board notice officially filed: Public hearings are lined up regarding commercial revitalization proposals along our main corridors. 📋 Make sure your neighborhood's voice is heard as our township balances commercial growth with residential character. #LivingstonNJ #PlanningBoard #TownshipNews",
-    "imageUrl": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800",
-    "likes": 215,
-    "comments": 29,
-    "shares": 14,
-    "consensusPercent": 76,
-    "trendingBadge": "📍 Town Planning",
-    "quickVoteQuestion": "Do you support expanding mixed-use retail and outdoor dining on Livingston Ave?",
+    "trendingBadge": "🔥 Verified Town Record",
+    "quickVoteQuestion": "Specific poll question about this exact ordinance?",
     "quickVoteOptionA": "Support",
     "quickVoteOptionB": "Oppose",
-    "quickVotePercentA": 81
-  }
+    "quickVotePercentA": 68
+  }}
 ]
+"""
+
+response = client.models.generate_content(
+    model="gemini-3.8-flash",
+    contents=prompt,
+)
+clean_json = response.text.replace("```json", "").replace("```", "").strip()
+
+os.makedirs("public", exist_ok=True)
+with open("public/livingston_feed.json", "w") as f:
+    f.write(clean_json)
