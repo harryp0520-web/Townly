@@ -4,9 +4,9 @@ import json
 import requests
 from bs4 import BeautifulSoup
 import pypdf
-import google.generativeai as genai
+from google import genai
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def get_livingston_text():
@@ -67,8 +67,10 @@ Respond ONLY in valid JSON matching this exact structure:
 ]
 """
 
-model = genai.GenerativeModel("gemini-2.5-flash")
-response = model.generate_content(prompt)
+response = client.models.generate_content(
+    model="gemini-3.8-flash",
+    contents=prompt,
+)
 clean_json = response.text.replace("```json", "").replace("```", "").strip()
 
 os.makedirs("public", exist_ok=True)
