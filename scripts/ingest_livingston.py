@@ -1,48 +1,41 @@
 import os
-import io
 import json
 import requests
 from bs4 import BeautifulSoup
-import pypdf
 from google import genai
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-def get_livingston_text():
-    extracted_text = ""
-    try:
-        res = requests.get("https://www.livingstonlegalnotices.org/", headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for notice in soup.find_all(["div", "p", "article"], limit=15):
-            text = notice.get_text().strip()
-            if len(text) > 40:
-                extracted_text += text + "\n---\n"
-    except Exception as e:
-        print(f"Notice fetch error: {e}")
+def get_livingston_notices():
+    url = "https://www.livingstonlegalnotices.org/"
+    res = requests.get(url, headers=HEADERS, timeout=15)
+    soup = BeautifulSoup(res.text, "html.parser")
+    
+    # Extract actual notice titles and links rather than page navigation
+    items = []
+    for a in soup.find_all("a", href=True):
+        title = a.get_text(strip=True)
+        href = a["href"]
+        if any(keyword in title.upper() for keyword in ["ORDINANCE", "NOTICE", "BUDGET", "HEARING", "BID"]):
+            full_url = href if href.startswith("http") else f"https://www.livingstonlegalnotices.org{href}"
+            items.append(f"Title: {title} | Link: {full_url}")
+            
+    # Print to GitHub Actions logs so you can audit the exact raw sources
+    raw_feed = "\n".join(items[:15])
+    print("=== RAW SCRAPED LIVINGSTON ITEMS ===")
+    print(raw_feed)
+    return raw_feed
 
-    if len(extracted_text) < 200:
-        try:
-            res = requests.get("https://www.livingstonnj.org/AgendaCenter", headers=HEADERS, timeout=10)
-            soup = BeautifulSoup(res.text, "html.parser")
-            for link in soup.find_all("a", href=True):
-                if "ViewFile" in link['href'] or "DocumentCenter" in link['href']:
-                    pdf_url = link['href'] if link['href'].startswith("http") else "https://www.livingstonnj.org" + link['href']
-                    pdf_res = requests.get(pdf_url, headers=HEADERS, timeout=15)
-                    reader = pypdf.PdfReader(io.BytesIO(pdf_res.content))
-                    for page in reader.pages[:8]:
-                        extracted_text += page.extract_text() or ""
-                    break
-        except Exception as e:
-            print(f"PDF fetch error: {e}")
-
-    return extracted_text[:12000]
-
-document_content = get_livingston_text()
+document_content = get_livingston_notices()
 
 prompt = f"""
-You are a civic media editor for Livingston, NJ. Convert these official township documents into 3 engaging Instagram-style social posts.
-Text: {document_content}
+You are a civic media editor for Livingston, NJ. 
+Using ONLY the verified Livingston Township legal notices below, create 3 Instagram-style social posts.
+CRITICAL RULE: You MUST cite the exact Ordinance number, Resolution, or Notice title and include its exact sourceUrl from the list below. Do not invent facts.
+
+Verified Notices:
+{document_content}
 
 Respond ONLY in valid JSON matching this exact structure:
 [
@@ -50,19 +43,21 @@ Respond ONLY in valid JSON matching this exact structure:
     "id": "liv-101",
     "username": "livingston_pulse",
     "userAvatar": "https://images.unsplash.com/photo-1577495508048-b635879837f1?w=150",
-    "timeAgo": "2h ago",
-    "category": "TOWN UPDATE",
-    "caption": "Short catchy summary of how this impacts Livingston residents #LivingstonNJ",
+    "timeAgo": "Today",
+    "category": "ORDINANCE | BUDGET | PLANNING",
+    "officialRef": "Exact Ordinance # or Notice Title from source",
+    "sourceUrl": "Exact URL from source",
+    "caption": "Catchy plain-English breakdown citing the exact ordinance/project + #LivingstonNJ",
     "imageUrl": "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b3?w=800",
-    "likes": 312,
-    "comments": 42,
-    "shares": 18,
-    "consensusPercent": 86,
-    "trendingBadge": "🔥 Trending in Livingston",
-    "quickVoteQuestion": "Community poll question?",
+    "likes": 284,
+    "comments": 36,
+    "shares": 19,
+    "consensusPercent": 82,
+    "trendingBadge": "🔥 Verified Town Record",
+    "quickVoteQuestion": "Specific poll question about this exact ordinance?",
     "quickVoteOptionA": "Support",
     "quickVoteOptionB": "Oppose",
-    "quickVotePercentA": 78
+    "quickVotePercentA": 68
   }}
 ]
 """
