@@ -4,6 +4,9 @@ on:
     - cron: '0 11 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   scrape-and-summarize:
     runs-on: ubuntu-latest
